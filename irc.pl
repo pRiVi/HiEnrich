@@ -2,39 +2,39 @@ use strict;
 use warnings;
 use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP Component::Server::HTTP Component::Client::HTTP);
 use JSON;
-use RRD::Simple;
+#use RRD::Simple;
 
 $SIG{CHLD} = 'IGNORE';
 
-my $nickname = 'HiEnrich';
+my $nickname = 'BeeLab';
 my $ircname  = 'Flibble the Sailor Bot';
 my $server   = 'irc.freenode.net';
 
 my $rrdfile = "/opt/HiEnrich/lab.rrd";
 my $rrdfile2 = "/opt/HiEnrich/labnet.rrd";
-my $rrd = RRD::Simple->new( file => $rrdfile );
-my $rrd2 = RRD::Simple->new( file => $rrdfile2 );
+#my $rrd = RRD::Simple->new( file => $rrdfile );
+#my $rrd2 = RRD::Simple->new( file => $rrdfile2 );
 my $locked = undef;
 
 unless (-f $rrdfile) {
-   $rrd->create($rrdfile, 
-      "3years",
-      macs => "GAUGE",
-      open => "GAUGE",
-   );
+   #$rrd->create($rrdfile, 
+   #   "3years",
+   #  macs => "GAUGE",
+   #   open => "GAUGE",
+   #);
 }
 unless (-f $rrdfile2) {
-   $rrd2->create($rrdfile2,
-      "3years",
-      nettx   => "COUNTER",
-      netrx   => "COUNTER",
-      netbw   => "COUNTER",
-   );
+   #$rrd2->create($rrdfile2,
+   #   "3years",
+   #   nettx   => "COUNTER",
+   #   netrx   => "COUNTER",
+   #   netbw   => "COUNTER",
+   #);
 }
 
 
 # Nickserv
-my $nickid = 'HiEnrich';
+my $nickid = 'beelab';
 my $password = `cat /opt/HiEnrich/password.txt`;
 
 # Interval we report a closing lab in maximum
@@ -43,10 +43,11 @@ my $cursecs = $secs;
 
 my $channels = {
    '#test.privi'   => '',
-   #'#augsburg'     => '',
+   '#augsburg'     => '',
 };
 
-my $dstchannel = '#test.privi'; # '#augsburg';
+my $dstchannel = '#test.privi';
+$dstchannel = '#augsburg';
 
 my $port = 12345;
 my $address = '127.0.0.1';
@@ -357,7 +358,7 @@ sub handleMacResult {
    $heap->{macs}->{user} ||= [];
    my $count = @{$livedata->{macs}->{"user"}}; #scalar(@{$heap->{macs}->{user}});
    my $trackdata = $heap->{trackdata}->{$wheelid};
-   print $count." MACs.\n";
+   print $count." MACs (".(join(",", map { join(";", @$_) } @{$livedata->{macs}->{"user"}})).").\n";
    $locked = `wget --timeout=5 --no-check-certificate https://labctl.ffa/sphincter/?action=state -O - 2>/dev/null`;
    my $netstat = `ssh -o "BatchMode=yes" -i /opt/HiEnrich.config/netstat 172.16.16.2`;
    chomp($netstat);
@@ -368,7 +369,7 @@ sub handleMacResult {
    #   open => ($locked eq "UNLOCKED") ? "1" : ($locked eq "LOCKED") ? 0 : undef,
    #);
    print $count." MACs and ".$locked.".\n";
-   print $rrd2;
+   #print $rrd2;
    #print $rrd2->update(
    #   $rrdfile2,
    #   time(),
