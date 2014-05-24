@@ -22,7 +22,7 @@ my $address = '127.0.0.1';
 my $cmddef = [
    ['status', '^\.status$', ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"]],
    ['df',     '^.df$',      ["/bin/df"]],
-   ['uptime', '.uptime', ["/usr/bin/uptime"]],
+   ['uptime', '^.uptime$',  ["/usr/bin/uptime"]],
 ];
 
 my $irc = POE::Component::IRC->spawn(
