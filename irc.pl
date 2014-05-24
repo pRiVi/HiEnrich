@@ -6,6 +6,10 @@ my $nickname = 'HiEnrich';
 my $ircname  = 'Flibble the Sailor Bot';
 my $server   = 'irc.freenode.net';
 
+# Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
+# command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
+my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
+
 my $password = `cat /opt/HiEnrich/password.txt|head -1`;
 
 die "Kein passwortfile oder kein Passwort darin!"
@@ -13,16 +17,14 @@ die "Kein passwortfile oder kein Passwort darin!"
 
 my %channels = (
    '#test.privi'   => '',
-   #'#augsburg'     => '',
+   '#augsburg'     => '',
 );
 
 my $port = 12345;
 my $address = '127.0.0.1';
 
 my $cmddef = [
-   # Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
-   # command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
-   ['status', '^\.status$', ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"]],
+   ['status', '^\.status$',  $maccmd],
    ['df',     '^\.df$',      ["/bin/df"]],
    ['uptime', '^\.uptime$',  ["/usr/bin/uptime"]],
    ['ping',   '^\.ping$',    ["ping", "-c", "4", "www.heise.de"]],
@@ -34,6 +36,84 @@ my $irc = POE::Component::IRC->spawn(
    ircname => $ircname,
    server  => $server,
 ) or die "Oh noooo! $!";
+
+
+
+   POE::Session->create(
+      inline_states => {
+         _start => sub {
+            print "Session ", $_[SESSION]->ID, " has started.\n";
+            $_[HEAP]->{count} = 0;
+            $_[KERNEL]->yield("count");
+            $_[HEAP]->{curcount} = 0;
+         },
+         _stop => sub {
+            print "Session ", $_[SESSION]->ID, " has stopped.\n";
+         },
+         count => sub {
+            my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+            my $session_id = $_[SESSION]->ID;
+            $heap->{child} = POE::Wheel::Run->new(
+               Program => $maccmd,
+               StdoutEvent  => "got_child_stdout",
+               #StderrEvent  => "got_child_stderr",
+               CloseEvent   => "got_child_close",
+            );
+         },
+        got_child_stdout => sub {
+           my $heap = $_[HEAP];
+           my $line = $_[ARG0];
+           my $wheelid = $_[ARG1];
+           my $trackdata = $heap->{trackdata}->{$wheelid};
+           print $line."\n";
+           parseLine($line, $heap);
+        },
+        got_child_close => sub {
+           my $heap = $_[HEAP];
+           my $wheelid = $_[ARG0];
+           $heap->{macs}->{user} ||= [];
+           unless ($heap->{curcount} == (scalar(@{$heap->{macs}->{user}}) ? 1 : 0)) {
+              $irc->yield( privmsg => '#augsburg' => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid));
+              $heap->{curcount} = (scalar(@{$heap->{macs}->{user}}) ? 1 : 0);
+           }
+           $heap->{macs} = {};
+           $poe_kernel->delay("count" => 5);
+         } 
+      }
+   );
+
+
+sub parseLine {
+   my $line = shift;
+   my $heap = shift;
+
+   my $curentry = [split(/\s+/, $line)];
+   if($curentry->[3] =~ m,incomplete,) {
+      push(@{$heap->{macs}->{resolving}}, $curentry)
+   } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
+      push(@{$heap->{macs}->{server}}, $curentry);
+   } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
+           ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
+           ($curentry->[3] =~ m,64:70:02:39:6c:15,) ||
+           ($curentry->[3] =~ m,24:a4:3c:44:c9:65,) ||
+           ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
+      push(@{$heap->{macs}->{freifunk}}, $curentry);
+   } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
+      push(@{$heap->{macs}->{user}}, $curentry);
+   } elsif($curentry->[2] =~ m,^at$,) {
+      push(@{$heap->{macs}->{unknown}}, $curentry);
+   }
+}
+sub handleMacResult {
+   my $heap = shift;
+   my $wheelid = shift;
+   $heap->{macs}->{user} ||= [];
+   my $count = scalar(@{$heap->{macs}->{user}});
+   my $trackdata = $heap->{trackdata}->{$wheelid};
+   print $count." MACs.\n";
+   my $return = "".($count ? ($count." user") : "Lab geschlossen.")." [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]";
+   return $return;
+}
 
 POE::Session->create(
     package_states => [
@@ -47,23 +127,7 @@ POE::Session->create(
            my $trackdata = $heap->{trackdata}->{$wheelid};
            print $line."\n";
            if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
-              my $curentry = [split(/\s+/, $line)];
-              if($curentry->[3] =~ m,incomplete,) {
-                 push(@{$heap->{macs}->{resolving}}, $curentry)
-              } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
-                 push(@{$heap->{macs}->{server}}, $curentry);
-              } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
-                      ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
-                      ($curentry->[3] =~ m,64:70:02:39:6c:15,) ||
-                      ($curentry->[3] =~ m,24:a4:3c:44:c9:65,) ||
-                      ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
-                 push(@{$heap->{macs}->{freifunk}}, $curentry);
-              } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
-                 push(@{$heap->{macs}->{user}}, $curentry);
-              } elsif($curentry->[2] =~ m,^at$,) {
-                 push(@{$heap->{macs}->{unknown}}, $curentry);
-                 print "UNKN".join(";", @$curentry)."\n";
-              }
+              parseLine($line, $heap);
            } else { 
               $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => $line );
            }
@@ -72,13 +136,9 @@ POE::Session->create(
            my $heap = $_[HEAP];
            my $wheelid = $_[ARG0];
            if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
-              $heap->{macs}->{user} ||= [];
-              my $count = scalar(@{$heap->{macs}->{user}});
-              my $trackdata = $heap->{trackdata}->{$wheelid};
-              print $count." MACs.\n";
-              $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => "".($count ? ($count." user") : "Lab geschlossen.")." [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]");
-              $heap->{macs} = {};
+              $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
            }
+           $heap->{macs} = {};
            delete $heap->{trackdata}->{$wheelid};
         },
      },
@@ -95,7 +155,7 @@ sub _start {
       Address => $address,
       ClientInput => sub {
          my $client_input = $_[ARG0];
-         $irc->yield( privmsg => "#augsburg" => $client_input );
+         $irc->yield( privmsg => '#augsburg' => $client_input );
       }
     );
 
@@ -153,4 +213,3 @@ sub _default {
     print join ' ', @output, "\n";
     return;
 }
-
