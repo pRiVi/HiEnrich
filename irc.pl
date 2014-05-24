@@ -33,31 +33,40 @@ my %channels = (
          got_child_stdout => sub {
             my $heap = $_[HEAP];
             my $line = $_[ARG0];
+            my $wheelid = $_[ARG1];
+            my $trackdata = $heap->{trackdata}->{$wheelid};
             print $line."\n";
-            my $curentry = [split(/\s+/, $line)];
-            if($curentry->[3] =~ m,incomplete,) {
-               push(@{$heap->{macs}->{resolving}}, $curentry)
-            } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
-               push(@{$heap->{macs}->{server}}, $curentry);
-            } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
-                    ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
-                    ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
-               push(@{$heap->{macs}->{freifunk}}, $curentry);
-            } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
-               push(@{$heap->{macs}->{user}}, $curentry);
-            } else {
-               push(@{$heap->{macs}->{unknown}}, $curentry);
+            if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
+               my $curentry = [split(/\s+/, $line)];
+               if($curentry->[3] =~ m,incomplete,) {
+                  push(@{$heap->{macs}->{resolving}}, $curentry)
+               } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
+                  push(@{$heap->{macs}->{server}}, $curentry);
+               } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
+                       ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
+                       ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
+                  push(@{$heap->{macs}->{freifunk}}, $curentry);
+               } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
+                  push(@{$heap->{macs}->{user}}, $curentry);
+               } else {
+                  push(@{$heap->{macs}->{unknown}}, $curentry);
+               }
+            } else { 
+               $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => $line );
             }
          },
          got_child_close => sub {
             my $heap = $_[HEAP];
             my $wheelid = $_[ARG0];
-            $heap->{macs}->{user} ||= [];
-            my $count = scalar(@{$heap->{macs}->{user}});
-            print $count." MACs.\n";
-            $irc->yield( privmsg => $heap->{channel}->{$wheelid} => "".($count ? ($count." user") : "Lab geschlossen.")." (".join(", ", map { $_."=".scalar(@{$heap->{macs}->{$_}}) } sort { $a cmp $b } keys %{$heap->{macs}}).")");
-            $heap->{macs} = {};
-            delete $heap->{channel}->{$wheelid};
+            if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
+               $heap->{macs}->{user} ||= [];
+               my $count = scalar(@{$heap->{macs}->{user}});
+               my $trackdata = $heap->{trackdata}->{$wheelid};
+               print $count." MACs.\n";
+               $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => "".($count ? ($count." user") : "Lab geschlossen.")." [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]");
+               $heap->{macs} = {};
+            }
+            delete $heap->{trackdata}->{$wheelid};
          },
      },
      heap => { irc => $irc },
@@ -99,16 +108,22 @@ POE::Component::Server::TCP->new(
      #    $rot13 =~ tr[a-zA-Z][n-za-mN-ZA-M];
      #    $irc->yield( privmsg => $channel => "$nick: $rot13" );
      #}
-     if ($what =~ m,^\.status$,) {
-        my $cmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
-        print "Running ".join(" ", @$cmd)."\n";
-        $heap->{child} = POE::Wheel::Run->new(
-           Program => $cmd,
-           StdoutEvent  => "got_child_stdout",
-           #StderrEvent  => "got_child_stderr",
-           CloseEvent   => "got_child_close",
-        );
-        $heap->{channel}->{$heap->{child}->ID()} = $channel;
+     foreach my $curcmd (['status', '^\.status$', ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"]],
+                         ['df', '.df',         ["/bin/df"]],
+                         ['uptime', '.uptime', ["/usr/bin/uptime"]]) {
+        my $trigger = $curcmd->[1];
+        if ($what =~ m,$trigger,) {
+          my $cmd = $curcmd->[2];
+          print "Running ".join(" ", @$cmd)."\n";
+          $heap->{child} = POE::Wheel::Run->new(
+             Program => $cmd,
+             StdoutEvent  => "got_child_stdout",
+             #StderrEvent  => "got_child_stderr",
+             CloseEvent   => "got_child_close",
+          );
+          $heap->{trackdata}->{$heap->{child}->ID()}->{channel} = $channel;
+          $heap->{trackdata}->{$heap->{child}->ID()}->{curcmd} = $curcmd;
+        }
      }
      return;
  }
