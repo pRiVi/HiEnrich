@@ -1,10 +1,10 @@
- use strict;
- use warnings;
- use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP);
+use strict;
+use warnings;
+use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP);
 
- my $nickname = 'HiEnrich';
- my $ircname  = 'Flibble the Sailor Bot';
- my $server   = 'irc.freenode.net';
+my $nickname = 'HiEnrich';
+my $ircname  = 'Flibble the Sailor Bot';
+my $server   = 'irc.freenode.net';
 
 my $password = `cat /opt/HiEnrich/password.txt|head -1`;
 
@@ -13,7 +13,7 @@ die "Kein passwortfile oder kein Passwort darin!"
 
 my %channels = (
    '#test.privi'   => '',
-   '#augsburg'     => '',
+   #'#augsburg'     => '',
 );
 
 my $port = 12345;
@@ -54,12 +54,15 @@ POE::Session->create(
                  push(@{$heap->{macs}->{server}}, $curentry);
               } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
                       ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
+                      ($curentry->[3] =~ m,64:70:02:39:6c:15,) ||
+                      ($curentry->[3] =~ m,24:a4:3c:44:c9:65,) ||
                       ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
                  push(@{$heap->{macs}->{freifunk}}, $curentry);
               } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
                  push(@{$heap->{macs}->{user}}, $curentry);
-              } else {
+              } elsif($curentry->[2] =~ m,^at$,) {
                  push(@{$heap->{macs}->{unknown}}, $curentry);
+                 print "UNKN".join(";", @$curentry)."\n";
               }
            } else { 
               $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => $line );
