@@ -1,10 +1,15 @@
  use strict;
  use warnings;
- use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run);
+ use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP);
 
  my $nickname = 'HiEnrich';
  my $ircname  = 'Flibble the Sailor Bot';
  my $server   = 'irc.freenode.net';
+
+my $password = `cat /opt/HiEnrich/password.txt|head -1`;
+
+die "Kein passwortfile oder kein Passwort darin!"
+   unless $password;
 
 # my @channels = ('#test.privi');
  
@@ -22,7 +27,7 @@ my %channels = (
 
  POE::Session->create(
      package_states => [
-         main => [ qw(_default _start irc_001 irc_public) ],
+         main => [ qw(_default _start irc_public) ],
      ],
      inline_states => {
          got_child_stdout => sub {
@@ -56,30 +61,25 @@ my %channels = (
  sub _start {
      my $heap = $_[HEAP];
 
+
+POE::Component::Server::TCP->new(
+    Port => 12345,
+    Address => '127.0.0.1',
+    ClientInput => sub {
+      my $client_input = $_[ARG0];
+      $irc->yield( privmsg => "#augsburg" => $client_input );
+    }
+);
+
      # retrieve our component's object from the heap where we stashed it
      my $irc = $heap->{irc};
 
      $irc->yield( register => 'all' );
      $irc->yield( connect => { } );
      $irc->plugin_add( 'HiEnrich2014', POE::Component::IRC::Plugin::NickServID->new(
-        Password => 'Aish9mei'
+        Password => $password
      ));
      $irc->plugin_add('AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => \%channels, RejoinOnKick => 1, Retry_when_banned => 1,  ));
-     return;
- }
-
- sub irc_001 {
-     my $sender = $_[SENDER];
-
-     # Since this is an irc_* event, we can get the component's object by
-     # accessing the heap of the sender. Then we register and connect to the
-     # specified server.
-     my $irc = $sender->get_heap();
-
-     print "Connected to ", $irc->server_name(), "\n";
-
-     # we join our channels
-     #$irc->yield( join => $_ ) for @channels;
      return;
  }
 
