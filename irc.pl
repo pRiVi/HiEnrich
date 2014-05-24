@@ -21,8 +21,10 @@ my $address = '127.0.0.1';
 
 my $cmddef = [
    ['status', '^\.status$', ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"]],
-   ['df',     '^.df$',      ["/bin/df"]],
-   ['uptime', '^.uptime$',  ["/usr/bin/uptime"]],
+   ['df',     '^\.df$',      ["/bin/df"]],
+   ['uptime', '^\.uptime$',  ["/usr/bin/uptime"]],
+   ['ping',   '^\.ping$',    ["ping", "-c", "4", "www.heise.de"]],
+   ['ping2',  '^\.pingd?ns$',["ping", "-c", "4", "8.8.8.8"]],
 ];
 
 my $irc = POE::Component::IRC->spawn(
