@@ -35,21 +35,28 @@ my %channels = (
             my $line = $_[ARG0];
             print $line."\n";
             my $curentry = [split(/\s+/, $line)];
-            push(@{$heap->{lastmacs}}, $curentry)
-               if (($curentry->[1] =~ m,10\.11\.7\.,) &&
-                   ($curentry->[3] !~ m,incomplete,) &&
-                   ($curentry->[3] !~ m,54:04:a6:61:01:f0,) &&
-                   ($curentry->[3] !~ m,00:0d:b9:28:92:d2,) &&
-                   ($curentry->[3] !~ m,00:0d:b9:27:41:68,) &&
-                   ($curentry->[3] !~ m,00:24:1d:d1:30:c8,));
+            if($curentry->[3] =~ m,incomplete,) {
+               push(@{$heap->{macs}->{resolving}}, $curentry)
+            } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
+               push(@{$heap->{macs}->{server}}, $curentry);
+            } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
+                    ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
+                    ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
+               push(@{$heap->{macs}->{freifunk}}, $curentry);
+            } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
+               push(@{$heap->{macs}->{user}}, $curentry);
+            } else {
+               push(@{$heap->{macs}->{unknown}}, $curentry);
+            }
          },
          got_child_close => sub {
             my $heap = $_[HEAP];
             my $wheelid = $_[ARG0];
-            my $count = scalar(@{$heap->{lastmacs}});
+            $heap->{macs}->{user} ||= [];
+            my $count = scalar(@{$heap->{macs}->{user}});
             print $count." MACs.\n";
-            $irc->yield( privmsg => $heap->{channel}->{$wheelid} => $count ? ($count." user") : "Lab geschlossen." );
-            $heap->{lastmacs} = [];
+            $irc->yield( privmsg => $heap->{channel}->{$wheelid} => "".($count ? ($count." user") : "Lab geschlossen.")." (".join(", ", map { $_."=".scalar(@{$heap->{macs}->{$_}}) } sort { $a cmp $b } keys %{$heap->{macs}}).")");
+            $heap->{macs} = {};
             delete $heap->{channel}->{$wheelid};
          },
      },
