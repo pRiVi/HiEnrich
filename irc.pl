@@ -20,6 +20,8 @@ my $port = 12345;
 my $address = '127.0.0.1';
 
 my $cmddef = [
+   # Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
+   # command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
    ['status', '^\.status$', ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"]],
    ['df',     '^\.df$',      ["/bin/df"]],
    ['uptime', '^\.uptime$',  ["/usr/bin/uptime"]],
