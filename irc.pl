@@ -97,6 +97,7 @@ my $irc = POE::Component::IRC->spawn(
            $irc->yield( privmsg => '#augsburg' => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid))
               if $report;
            $heap->{macs} = {};
+           delete $heap->{trackdata}->{$wheelid};
            $poe_kernel->delay("count" => 5);
          } 
       }
@@ -146,16 +147,17 @@ POE::Session->create(
            my $wheelid = $_[ARG1];
            my $trackdata = $heap->{trackdata}->{$wheelid};
            print $line."\n";
-           if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
+           if ($trackdata->{curcmd}->[0] eq "status") {
               parseLine($line, $heap);
            } else { 
-              $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => $line );
+              $irc->yield( privmsg => $trackdata->{channel} => $line );
            }
         },
         got_child_close => sub {
            my $heap = $_[HEAP];
            my $wheelid = $_[ARG0];
-           if ($heap->{trackdata}->{$wheelid}->{curcmd}->[0] eq "status") {
+           my $trackdata = $heap->{trackdata}->{$wheelid};
+           if ($trackdata->{curcmd}->[0] eq "status") {
               $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
            }
            $heap->{macs} = {};
