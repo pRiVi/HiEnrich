@@ -12,6 +12,8 @@ my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
 
 my $password = `cat /opt/HiEnrich/password.txt|head -1`;
 
+my $secs = 60*5;
+
 die "Kein passwortfile oder kein Passwort darin!"
    unless $password;
 
@@ -45,7 +47,7 @@ my $irc = POE::Component::IRC->spawn(
             print "Session ", $_[SESSION]->ID, " has started.\n";
             $_[HEAP]->{count} = 0;
             $_[KERNEL]->yield("count");
-            $_[HEAP]->{curcount} = 0;
+            $_[HEAP]->{curstate} = 0;
          },
          _stop => sub {
             print "Session ", $_[SESSION]->ID, " has stopped.\n";
@@ -72,10 +74,28 @@ my $irc = POE::Component::IRC->spawn(
            my $heap = $_[HEAP];
            my $wheelid = $_[ARG0];
            $heap->{macs}->{user} ||= [];
-           unless ($heap->{curcount} == (scalar(@{$heap->{macs}->{user}}) ? 1 : 0)) {
-              $irc->yield( privmsg => '#augsburg' => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid));
-              $heap->{curcount} = (scalar(@{$heap->{macs}->{user}}) ? 1 : 0);
-           }
+           my $newstate = (scalar(@{$heap->{macs}->{user}}) ? 1 : 0);
+           delete $heap->{curcounttime}
+              if ($newstate);
+           my $report = 0;
+           unless ($heap->{curstate} == $newstate) {
+              if ($newstate) {
+                 $report++;
+                 $heap->{curstate} = $newstate;
+              } else {
+                 if ($heap->{curcounttime}) {
+                    if ((time()-$heap->{curcounttime}) > $secs) {
+                       delete $heap->{curcounttime};
+                       $report++;
+                       $heap->{curstate} = $newstate;
+                    }
+                 } else {
+                    $heap->{curcounttime} = time();
+                 }
+              }
+           } 
+           $irc->yield( privmsg => '#augsburg' => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid))
+              if $report;
            $heap->{macs} = {};
            $poe_kernel->delay("count" => 5);
          } 
