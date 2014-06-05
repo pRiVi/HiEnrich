@@ -37,6 +37,26 @@ my $cmddef = [
    ['ping2',  '^\.pingd?ns$',["ping", "-c", "4", "8.8.8.8"]],
 ];
 
+my $rules = {};
+
+open(RULES, "<", "rules.txt") || die;
+while(<RULES>) {
+   chomp;
+   s,\#.*$,,;
+   my $line = [split(/\s+/)];
+   next if m,^\s*$,;
+   unless (scalar(@$line) == 3) {
+      print "Bad rule columns number: ".scalar(@$line)."\n";
+      next;
+   }
+   if ($line->[0] eq "mac") {
+      push(@{$rules->{$line->[0]}->{$line->[1]}}, $line->[2]);
+      print "TYPE:".$line->[0].":".$line->[1]." = ".$line->[2]."\n";
+   } else {
+      print "Bad rule type: ".$line->[0]."\n";
+   }
+}
+
 my $irc = POE::Component::IRC->spawn(
    nick => $nickname,
    ircname => $ircname,
@@ -194,21 +214,15 @@ $poe_kernel->run();
 sub parseMacLine {
    my $line = shift;
    my $heap = shift;
-
    my $curentry = [split(/\s+/, $line)];
-   if($curentry->[3] =~ m,incomplete,) {
-      push(@{$heap->{macs}->{resolving}}, $curentry)
-   } elsif($curentry->[3] =~ m,00:c0:ee:d6:fb:0f,) {
-      push(@{$heap->{macs}->{drucker}}, $curentry);
-   } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
-      push(@{$heap->{macs}->{server}}, $curentry);
-   } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
-           ($curentry->[3] =~ m,00:0d:b9:27:41:68,) ||
-           ($curentry->[3] =~ m,64:70:02:39:6c:15,) ||
-           ($curentry->[3] =~ m,24:a4:3c:44:c9:65,) ||
-           ($curentry->[3] =~ m,00:24:1d:d1:30:c8,)) {
-      push(@{$heap->{macs}->{freifunk}}, $curentry);
-   } elsif($curentry->[1] =~ m,10\.11\.7\.,) {
+   my $curmac = $curentry->[3];
+   return push(@{$heap->{macs}->{resolving}}, $curentry)
+      if (lc($curmac) eq 'incomplete');
+   foreach my $curname (keys %{$rules->{mac}}) {
+      return push(@{$heap->{macs}->{$curname}}, $curentry) 
+         if (grep { lc($curmac) eq lc($_) } @{$rules->{mac}->{$curname}});
+   }
+   if($curentry->[1] =~ m,10\.11\.7\.,) {
       push(@{$heap->{macs}->{user}}, $curentry);
    } elsif($curentry->[2] =~ m,^at$,) {
       push(@{$heap->{macs}->{unknown}}, $curentry);
