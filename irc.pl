@@ -2,6 +2,8 @@ use strict;
 use warnings;
 use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP);
 
+$SIG{CHLD} = 'IGNORE';
+
 my $nickname = 'HiEnrich';
 my $ircname  = 'Flibble the Sailor Bot';
 my $server   = 'irc.freenode.net';
