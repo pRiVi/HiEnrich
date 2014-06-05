@@ -198,6 +198,8 @@ sub parseMacLine {
    my $curentry = [split(/\s+/, $line)];
    if($curentry->[3] =~ m,incomplete,) {
       push(@{$heap->{macs}->{resolving}}, $curentry)
+   } elsif($curentry->[3] =~ m,00:c0:ee:d6:fb:0f,) {
+      push(@{$heap->{macs}->{drucker}}, $curentry);
    } elsif($curentry->[3] =~ m,54:04:a6:61:01:f0,) {
       push(@{$heap->{macs}->{server}}, $curentry);
    } elsif(($curentry->[3] =~ m,00:0d:b9:28:92:d2,) ||
