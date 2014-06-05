@@ -20,6 +20,8 @@ my $channels = {
    '#augsburg'     => '',
 };
 
+my $dstchannel = '#augsburg';
+
 my $port = 12345;
 my $address = '127.0.0.1';
 
@@ -97,10 +99,11 @@ POE::Session->create(
                }
             }
          } 
-         $irc->yield( privmsg => '#augsburg' => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid))
+         $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid))
             if $report;
          $heap->{macs} = {};
          delete $heap->{trackdata}->{$wheelid};
+         delete $heap->{child};
          $poe_kernel->delay("count" => 5);
       } 
    }
@@ -115,7 +118,7 @@ POE::Session->create(
             Address => $address,
             ClientInput => sub {
                my $client_input = $_[ARG0];
-               $irc->yield( privmsg => '#augsburg' => $client_input );
+               $irc->yield( privmsg => $dstchannel => $client_input );
             }
          );
          $heap->{irc}->yield( register => 'all' );
@@ -179,6 +182,7 @@ POE::Session->create(
             $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
          }
          $heap->{macs} = {};
+         delete $heap->{child};
          delete $heap->{trackdata}->{$wheelid};
       },
    },
