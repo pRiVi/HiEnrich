@@ -39,7 +39,7 @@ my $cmddef = [
 
 my $rules = {};
 
-open(RULES, "<", "rules.txt") || die;
+open(RULES, "<", "rules.txt") || die("cannot open rules.txt: ".$!);
 while(<RULES>) {
    chomp;
    s,\#.*$,,;
@@ -49,7 +49,7 @@ while(<RULES>) {
       print "Bad rule columns number: ".scalar(@$line)."\n";
       next;
    }
-   if ($line->[0] eq "mac") {
+   if (($line->[0] eq "mac")||($line->[0] eq "ip")) {
       push(@{$rules->{$line->[0]}->{$line->[1]}}, $line->[2]);
       print "TYPE:".$line->[0].":".$line->[1]." = ".$line->[2]."\n";
    } else {
@@ -216,11 +216,16 @@ sub parseMacLine {
    my $heap = shift;
    my $curentry = [split(/\s+/, $line)];
    my $curmac = $curentry->[3];
+   my $curip = $curentry->[1];
    return push(@{$heap->{macs}->{resolving}}, $curentry)
       if (lc($curmac) eq 'incomplete');
    foreach my $curname (keys %{$rules->{mac}}) {
       return push(@{$heap->{macs}->{$curname}}, $curentry) 
          if (grep { lc($curmac) eq lc($_) } @{$rules->{mac}->{$curname}});
+   }
+   foreach my $curname (keys %{$rules->{ip}}) {
+      return push(@{$heap->{macs}->{$curname}}, $curentry)
+         if (grep { lc($curip) eq "(".lc($_).")" } @{$rules->{ip}->{$curname}});
    }
    if($curentry->[1] =~ m,10\.11\.7\.,) {
       push(@{$heap->{macs}->{user}}, $curentry);
