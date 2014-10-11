@@ -28,7 +28,7 @@ my $address = '127.0.0.1';
 
 # Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
 # command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
-my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
+my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.16"];
 
 my $cmddef = [
    ['status', '^\.status$',  $maccmd],
@@ -271,22 +271,40 @@ sub parseMacLine {
    my $line = shift;
    my $heap = shift;
    my $curentry = [split(/\s+/, $line)];
-   my $curmac = $curentry->[3];
-   my $curip = $curentry->[1];
-   return push(@{$heap->{macs}->{resolving}}, $curentry)
-      if (lc($curmac) eq 'incomplete');
-   foreach my $curname (keys %{$rules->{mac}}) {
-      return push(@{$heap->{macs}->{$curname}}, $curentry) 
-         if (grep { lc($curmac) eq lc($_) } @{$rules->{mac}->{$curname}});
-   }
-   foreach my $curname (keys %{$rules->{ip}}) {
-      return push(@{$heap->{macs}->{$curname}}, $curentry)
-         if (grep { lc($curip) eq "(".lc($_).")" } @{$rules->{ip}->{$curname}});
-   }
-   if($curentry->[1] =~ m,10\.11\.7\.,) {
-      push(@{$heap->{macs}->{user}}, $curentry);
-   } elsif($curentry->[2] =~ m,^at$,) {
-      push(@{$heap->{macs}->{unknown}}, $curentry);
+   my $curip = $curentry->[0];
+   if ($curentry->[3] eq "lladdr") {
+      my $curmac = $curentry->[4];
+      if (($curentry->[5] eq "REACHABLE") || ($curentry->[5] eq "STALE")) {
+         foreach my $curname (keys %{$rules->{mac}}) {
+            return push(@{$heap->{macs}->{$curname}}, $curentry)
+               if (grep { lc($curmac) eq lc($_) } @{$rules->{mac}->{$curname}});
+         }
+         foreach my $curname (keys %{$rules->{ip}}) {
+            return push(@{$heap->{macs}->{$curname}}, $curentry)
+               if (grep { lc($curip) eq "(".lc($_).")" } @{$rules->{ip}->{$curname}});
+         }
+         if ($curip =~ m,10\.11\.7\.,) {
+            push(@{$heap->{macs}->{user}}, $curentry);
+         } elsif($curentry->[3] eq "lladdr") {
+            push(@{$heap->{macs}->{unknown}}, $curentry);
+         } else {
+            push(@{$heap->{macs}->{bad}}, $curentry);
+         }
+      } elsif($curentry->[5] eq "DELAY") {
+         push(@{$heap->{macs}->{resolving}}, $curip);
+      #} elsif($curentry->[5] eq "STALE") {
+      #   if ($curip =~ m,10\.11\.7\.,) {
+      #      push(@{$heap->{macs}->{cached}}, $curip);
+      #   } else {
+      #      push(@{$heap->{macs}->{cachedbad}}, $curip);
+      #   }
+      } else {
+         push(@{$heap->{macs}->{cachedunknown}}, $curentry);
+      }
+   } elsif(($curentry->[3] eq "") && ($curentry->[4] eq "FAILED")) {
+      push(@{$heap->{macs}->{resolving}}, $curip);
+   } else {
+      push(@{$heap->{macs}->{badbad}}, $curip);
    }
 }
 
