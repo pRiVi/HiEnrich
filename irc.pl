@@ -1,6 +1,7 @@
 use strict;
 use warnings;
-use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP);
+use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP Component::Server::HTTP Component::Client::HTTP);
+use JSON;
 
 $SIG{CHLD} = 'IGNORE';
 
@@ -31,6 +32,7 @@ my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
 
 my $cmddef = [
    ['status', '^\.status$',  $maccmd],
+   ['muesli', '^\.muesli$',  []],
    ['df',     '^\.df$',      ["/bin/df"]],
    ['uptime', '^\.uptime$',  ["/usr/bin/uptime"]],
    ['ping',   '^\.ping$',    ["ping", "-c", "4", "www.heise.de"]],
@@ -66,6 +68,43 @@ my $irc = POE::Component::IRC->spawn(
 die "Kein passwortfile oder kein Passwort darin!"
    unless $password;
 
+my $livedata = {};
+my $livedatatimestamp = 0;
+
+POE::Component::Client::HTTP->spawn(
+   Alias     => 'ua',                  # defaults to 'weeble'
+   Timeout   => 20,                    # defaults to 180 seconds
+   MaxSize   => 16384,                 # defaults to entire response
+   FollowRedirects => 2                # defaults to 0 (off)
+);
+
+my $aliases = POE::Component::Server::HTTP->new(
+   Address => "0.0.0.0",
+   Port => 4716,
+   ContentHandler => {
+      '/.status' => sub {
+         my ($request, $response) = @_;
+         $response->code(RC_OK);
+         $response->content(getStatusJSON());
+         return RC_OK;
+      },
+   }
+);
+
+sub getStatusJSON {
+   $livedata->{macs}->{user} ||= [];
+   $livedata->{macs}->{freifunk} ||= [];
+   if ($livedata->{macs}) {
+      my $stats = {};
+      foreach my $type (keys %{$livedata->{macs}}) {
+         $stats->{$type} = scalar (@{$livedata->{macs}->{$type}});
+      }
+      return JSON->new->utf8->encode({ result => "ok", error => undef, stats => $stats, delay => (time()-$livedatatimestamp)});
+   } else {
+      return JSON->new->utf8->encode({ result => "fail", error => "no live data" });
+   }
+}
+
 POE::Session->create(
    inline_states => {
       _start => sub {
@@ -95,6 +134,12 @@ POE::Session->create(
          print $line."\n";
          parseMacLine($line, $heap);
       },
+      send_to_muesli => sub {
+         my ($kernel, $session, $heap, $request_packet, $response_packet) = @_[ KERNEL, SESSION, HEAP, ARG0, ARG1];
+         my $request_object  = $request_packet->[0];
+         my $response_object = $response_packet->[0];
+         #$irc->yield( privmsg => $dstchannel => "RESULT: [REQUEST] url=".$request_object->uri." content=".$request_object->content." [RESPONSE] code=".$response_object->code." content=".$response_object->content().":\n");
+      },
       got_child_close => sub {
          my $heap = $_[HEAP];
          my $wheelid = $_[ARG0];
@@ -118,12 +163,16 @@ POE::Session->create(
                   $heap->{curcounttime} = time();
                }
             }
-         } 
-         $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid))
-            if $report;
+         }
+         $livedata->{macs} = $heap->{macs};
+         $livedatatimestamp = time();
          $heap->{macs} = {};
          delete $heap->{trackdata}->{$wheelid};
          delete $heap->{child};
+         if ($report) { 
+            $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid));
+            $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://10.11.8.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()))
+         }
          $poe_kernel->delay("count" => 5);
       } 
    }
@@ -155,6 +204,11 @@ POE::Session->create(
           foreach my $curcmd (@$cmddef) {
              my $trigger = $curcmd->[1];
              if ($what =~ m,$trigger,) {
+               if ($what =~ m,muesli,i) {
+                  $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://10.11.8.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()));
+                  print "MUSLI!!!\n";
+                  return;
+               }
                my $cmd = $curcmd->[2];
                print "Running ".join(" ", @$cmd)."\n";
                $heap->{child} = POE::Wheel::Run->new(
@@ -201,6 +255,8 @@ POE::Session->create(
          if ($trackdata->{curcmd}->[0] eq "status") {
             $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
          }
+         $livedata->{macs} = $heap->{macs};
+         $livedatatimestamp = time();
          $heap->{macs} = {};
          delete $heap->{child};
          delete $heap->{trackdata}->{$wheelid};
