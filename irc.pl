@@ -2,6 +2,7 @@ use strict;
 use warnings;
 use POE qw(Component::IRC Component::IRC::Plugin::AutoJoin Component::IRC::Plugin::NickServID Wheel::Run Component::Server::TCP Component::Server::HTTP Component::Client::HTTP);
 use JSON;
+use RRD::Simple;
 
 $SIG{CHLD} = 'IGNORE';
 
@@ -9,29 +10,54 @@ my $nickname = 'HiEnrich';
 my $ircname  = 'Flibble the Sailor Bot';
 my $server   = 'irc.freenode.net';
 
+my $rrdfile = "/opt/HiEnrich/lab.rrd";
+my $rrdfile2 = "/opt/HiEnrich/labnet.rrd";
+my $rrd = RRD::Simple->new( file => $rrdfile );
+my $rrd2 = RRD::Simple->new( file => $rrdfile2 );
+my $locked = undef;
+
+unless (-f $rrdfile) {
+   $rrd->create($rrdfile, 
+      "3years",
+      macs => "GAUGE",
+      open => "GAUGE",
+   );
+}
+unless (-f $rrdfile2) {
+   $rrd2->create($rrdfile2,
+      "3years",
+      nettx   => "COUNTER",
+      netrx   => "COUNTER",
+      netbw   => "COUNTER",
+   );
+}
+
+
 # Nickserv
 my $nickid = 'HiEnrich';
 my $password = `cat /opt/HiEnrich/password.txt`;
 
 # Interval we report a closing lab in maximum
 my $secs = 60*5; # Seconds
+my $cursecs = $secs;
 
 my $channels = {
    '#test.privi'   => '',
-   '#augsburg'     => '',
+   #'#augsburg'     => '',
 };
 
-my $dstchannel = '#augsburg';
+my $dstchannel = '#test.privi'; # '#augsburg';
 
 my $port = 12345;
 my $address = '127.0.0.1';
 
 # Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
 # command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
-my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.16"];
+my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
 
 my $cmddef = [
    ['status', '^\.status$',  $maccmd],
+   ['bigstatus', '^\.bigstatus$',  $maccmd],
    ['muesli', '^\.muesli$',  []],
    ['df',     '^\.df$',      ["/bin/df"]],
    ['uptime', '^\.uptime$',  ["/usr/bin/uptime"]],
@@ -60,7 +86,7 @@ while(<RULES>) {
 }
 
 my $irc = POE::Component::IRC->spawn(
-   nick => $nickname,
+   nick    => $nickname,
    ircname => $ircname,
    server  => $server,
 ) or die "Oh noooo! $!";
@@ -131,7 +157,7 @@ POE::Session->create(
          my $line = $_[ARG0];
          my $wheelid = $_[ARG1];
          my $trackdata = $heap->{trackdata}->{$wheelid};
-         print $line."\n";
+         #print $line."\n";
          parseMacLine($line, $heap);
       },
       send_to_muesli => sub {
@@ -148,13 +174,18 @@ POE::Session->create(
          delete $heap->{curcounttime}
             if ($newstate);
          my $report = 0;
+         $cursecs = $secs
+            if ((scalar(@{$heap->{macs}->{user}}) > 1) && ($cursecs > $secs));
          unless ($heap->{curstate} == $newstate) {
             if ($newstate) {
                $report++;
                $heap->{curstate} = $newstate;
+               $cursecs = $secs;
+               $cursecs = $secs * 10
+                  unless (scalar(@{$heap->{macs}->{user}}) > 1);
             } else {
                if ($heap->{curcounttime}) {
-                  if ((time()-$heap->{curcounttime}) > $secs) {
+                  if ((time()-$heap->{curcounttime}) > $cursecs) {
                      delete $heap->{curcounttime};
                      $report++;
                      $heap->{curstate} = $newstate;
@@ -169,8 +200,9 @@ POE::Session->create(
          $heap->{macs} = {};
          delete $heap->{trackdata}->{$wheelid};
          delete $heap->{child};
+         my $val = handleMacResult($heap, $wheelid);
          if ($report) { 
-            $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".handleMacResult($heap, $wheelid));
+            $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".$val);
             $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://10.11.8.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()))
          }
          $poe_kernel->delay("count" => 5);
@@ -241,9 +273,12 @@ POE::Session->create(
          my $line = $_[ARG0];
          my $wheelid = $_[ARG1];
          my $trackdata = $heap->{trackdata}->{$wheelid};
-         print $line."\n";
          if ($trackdata->{curcmd}->[0] eq "status") {
+            print $line."\n";
             parseMacLine($line, $heap);
+         } elsif ($trackdata->{curcmd}->[0] eq "status") {
+            print $line."\n";
+            parseMacLine($line, $heap, 1);
          } else { 
             $irc->yield( privmsg => $trackdata->{channel} => $line );
          }
@@ -252,8 +287,13 @@ POE::Session->create(
          my $heap = $_[HEAP];
          my $wheelid = $_[ARG0];
          my $trackdata = $heap->{trackdata}->{$wheelid};
+         if ($trackdata->{curcmd}->[0] eq "bigstatus") {
+            $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid, 1));
+         }
          if ($trackdata->{curcmd}->[0] eq "status") {
-            $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
+            #$irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => handleMacResult($heap, $wheelid));
+            $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => "+++ LAB-STATUS: ".(($locked eq "UNLOCKED") ? "offen" : ($locked eq "LOCKED") ? "abgesperrt" : "unbekannt").". +++" );
+            $irc->yield( privmsg => $heap->{trackdata}->{$wheelid}->{channel} => "+++ Netzwerk-Status - Freifunk: 0, Lab: ".scalar(@{$livedata->{macs}->{"user"}}) );
          }
          $livedata->{macs} = $heap->{macs};
          $livedatatimestamp = time();
@@ -270,6 +310,7 @@ $poe_kernel->run();
 sub parseMacLine {
    my $line = shift;
    my $heap = shift;
+   my $long = shift;
    my $curentry = [split(/\s+/, $line)];
    my $curip = $curentry->[0];
    if ($curentry->[3] eq "lladdr") {
@@ -311,10 +352,53 @@ sub parseMacLine {
 sub handleMacResult {
    my $heap = shift;
    my $wheelid = shift;
+   my $long = shift;
    $heap->{macs}->{user} ||= [];
-   my $count = scalar(@{$heap->{macs}->{user}});
+   my $count = @{$livedata->{macs}->{"user"}}; #scalar(@{$heap->{macs}->{user}});
    my $trackdata = $heap->{trackdata}->{$wheelid};
    print $count." MACs.\n";
-   my $return = "".($count ? ($count." user") : "Lab geschlossen.")." [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]";
+   $locked = `wget --timeout=5 --no-check-certificate https://labctl.ffa/sphincter/?action=state -O - 2>/dev/null`;
+   my $netstat = `ssh -o "BatchMode=yes" -i /opt/HiEnrich.config/netstat 10.11.7.1`;
+   chomp($netstat);
+   my $net = [split(":", $netstat)];
+   print "RX:".$net->[0]." TX:".$net->[1]." BW:".$net->[2]."\n";
+   $rrd->update(
+      macs => $count,
+      open => ($locked eq "UNLOCKED") ? "1" : ($locked eq "LOCKED") ? 0 : undef,
+   );
+   print $count." MACs and ".$locked.".\n";
+   print $rrd2;
+   print $rrd2->update(
+      $rrdfile2,
+      time(),
+      netrx => $net->[0],
+      nettx => $net->[1],
+      netbw => $net->[2],
+   );
+   print "RX:".$net->[0].": TX:".$net->[1].": BW:".$net->[2].":\n";
+   my %rtn = $rrd->graph(
+      periods => [ qw(week month daily hour annual) ],
+      destination => "/var/www/labstat.tmp/",
+      title => "User statistics on WLAN",
+      vertical_label => "Uniq MACs",
+      interlaced => "",
+      width => 1000,
+   );
+   printf("Created %s\n",join(", ",map { $rtn{$_}->[0] } keys %rtn));
+   my %rtn2 = $rrd2->graph(
+      periods => [ qw(week month daily hour annual) ],
+      basename => "network",
+      destination => "/var/www/labstat.tmp/",
+      title => "Internet traffic statistics",
+      vertical_label => "Bandwidth in bytes/sec",
+      interlaced => "",
+      width => 1000,
+      #height => 300,
+   );
+   printf("Created %s\n",join(", ",map { $rtn2{$_}->[0] } keys %rtn2));
+   system("bash", "-c", "/bin/mv /var/www/labstat.tmp/* /var/www/labstat/");
+   my $return = "".($count ? ($count." user") : "Lab geschlossen.");
+   $return .= " [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]"
+      if $long;
    return $return;
 }
