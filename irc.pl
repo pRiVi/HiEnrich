@@ -53,7 +53,7 @@ my $address = '127.0.0.1';
 
 # Der Remote SSH Server hat folgende /root/.ssh/authorized_keys:
 # command="/usr/sbin/arp -an",no-port-forwarding,no-X11-forwarding,no-pty ssh-rsa KEY.......
-my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "10.11.7.1"];
+my $maccmd = ["/usr/bin/ssh", "-i", "/opt/HiEnrich/getmacs", "172.16.16.2"];
 
 my $cmddef = [
    ['status', '^\.status$',  $maccmd],
@@ -125,6 +125,7 @@ sub getStatusJSON {
       foreach my $type (keys %{$livedata->{macs}}) {
          $stats->{$type} = scalar (@{$livedata->{macs}->{$type}});
       }
+      #$stats->{user} .= '(Fuer Phjlipp: Das funktioniert im Moment nicht)';
       return JSON->new->utf8->encode({ result => "ok", error => undef, stats => $stats, delay => (time()-$livedatatimestamp)});
    } else {
       return JSON->new->utf8->encode({ result => "fail", error => "no live data" });
@@ -203,7 +204,7 @@ POE::Session->create(
          my $val = handleMacResult($heap, $wheelid);
          if ($report) { 
             $irc->yield( privmsg => $dstchannel => "Labstatus hat sich geaendert: ".$val);
-            $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://10.11.8.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()))
+            $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://172.16.16.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()))
          }
          $poe_kernel->delay("count" => 5);
       } 
@@ -237,7 +238,7 @@ POE::Session->create(
              my $trigger = $curcmd->[1];
              if ($what =~ m,$trigger,) {
                if ($what =~ m,muesli,i) {
-                  $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://10.11.8.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()));
+                  $poe_kernel->post('ua', 'request','send_to_muesli', HTTP::Request->new(POST => "http://172.16.16.116:12346/netstatus" => HTTP::Headers->new() => getStatusJSON()));
                   print "MUSLI!!!\n";
                   return;
                }
@@ -324,7 +325,7 @@ sub parseMacLine {
             return push(@{$heap->{macs}->{$curname}}, $curentry)
                if (grep { lc($curip) eq "(".lc($_).")" } @{$rules->{ip}->{$curname}});
          }
-         if ($curip =~ m,10\.11\.7\.,) {
+         if ($curip =~ m,172\.16\.0\.,) {
             push(@{$heap->{macs}->{user}}, $curentry);
          } elsif($curentry->[3] eq "lladdr") {
             push(@{$heap->{macs}->{unknown}}, $curentry);
@@ -334,7 +335,7 @@ sub parseMacLine {
       } elsif($curentry->[5] eq "DELAY") {
          push(@{$heap->{macs}->{resolving}}, $curip);
       #} elsif($curentry->[5] eq "STALE") {
-      #   if ($curip =~ m,10\.11\.7\.,) {
+      #   if ($curip =~ m,172\.16\.0\.,) {
       #      push(@{$heap->{macs}->{cached}}, $curip);
       #   } else {
       #      push(@{$heap->{macs}->{cachedbad}}, $curip);
@@ -358,7 +359,7 @@ sub handleMacResult {
    my $trackdata = $heap->{trackdata}->{$wheelid};
    print $count." MACs.\n";
    $locked = `wget --timeout=5 --no-check-certificate https://labctl.ffa/sphincter/?action=state -O - 2>/dev/null`;
-   my $netstat = `ssh -o "BatchMode=yes" -i /opt/HiEnrich.config/netstat 10.11.7.1`;
+   my $netstat = `ssh -o "BatchMode=yes" -i /opt/HiEnrich.config/netstat 172.16.16.2`;
    chomp($netstat);
    my $net = [split(":", $netstat)];
    print "RX:".$net->[0]." TX:".$net->[1]." BW:".$net->[2]."\n";
