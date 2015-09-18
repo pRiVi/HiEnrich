@@ -363,40 +363,40 @@ sub handleMacResult {
    chomp($netstat);
    my $net = [split(":", $netstat)];
    print "RX:".$net->[0]." TX:".$net->[1]." BW:".$net->[2]."\n";
-   $rrd->update(
-      macs => $count,
-      open => ($locked eq "UNLOCKED") ? "1" : ($locked eq "LOCKED") ? 0 : undef,
-   );
+   #$rrd->update(
+   #   macs => $count,
+   #   open => ($locked eq "UNLOCKED") ? "1" : ($locked eq "LOCKED") ? 0 : undef,
+   #);
    print $count." MACs and ".$locked.".\n";
    print $rrd2;
-   print $rrd2->update(
-      $rrdfile2,
-      time(),
-      netrx => $net->[0],
-      nettx => $net->[1],
-      netbw => $net->[2],
-   );
+   #print $rrd2->update(
+   #   $rrdfile2,
+   #   time(),
+   #   netrx => $net->[0],
+   #   nettx => $net->[1],
+   #   netbw => $net->[2],
+   #);
    print "RX:".$net->[0].": TX:".$net->[1].": BW:".$net->[2].":\n";
-   my %rtn = $rrd->graph(
-      periods => [ qw(week month daily hour annual) ],
-      destination => "/var/www/labstat.tmp/",
-      title => "User statistics on WLAN",
-      vertical_label => "Uniq MACs",
-      interlaced => "",
-      width => 1000,
-   );
-   printf("Created %s\n",join(", ",map { $rtn{$_}->[0] } keys %rtn));
-   my %rtn2 = $rrd2->graph(
-      periods => [ qw(week month daily hour annual) ],
-      basename => "network",
-      destination => "/var/www/labstat.tmp/",
-      title => "Internet traffic statistics",
-      vertical_label => "Bandwidth in bytes/sec",
-      interlaced => "",
-      width => 1000,
-      #height => 300,
-   );
-   printf("Created %s\n",join(", ",map { $rtn2{$_}->[0] } keys %rtn2));
+   #my %rtn = $rrd->graph(
+   #   periods => [ qw(week month daily hour annual) ],
+   #   destination => "/var/www/labstat.tmp/",
+   #   title => "User statistics on WLAN",
+   #   vertical_label => "Uniq MACs",
+   #   interlaced => "",
+   #   width => 1000,
+   #);
+   #printf("Created %s\n",join(", ",map { $rtn{$_}->[0] } keys %rtn));
+   #my %rtn2 = $rrd2->graph(
+   #   periods => [ qw(week month daily hour annual) ],
+   #   basename => "network",
+   #   destination => "/var/www/labstat.tmp/",
+   #   title => "Internet traffic statistics",
+   #   vertical_label => "Bandwidth in bytes/sec",
+   #   interlaced => "",
+   #   width => 1000,
+   #   #height => 300,
+   #);
+   #printf("Created %s\n",join(", ",map { $rtn2{$_}->[0] } keys %rtn2));
    system("bash", "-c", "/bin/mv /var/www/labstat.tmp/* /var/www/labstat/");
    my $return = "".($count ? ($count." user") : "Lab geschlossen.");
    $return .= " [".join(" ", map { $_."[".scalar(@{$heap->{macs}->{$_}})."]" } sort { (scalar(@{$heap->{macs}->{$b}}) <=> scalar(@{$heap->{macs}->{$a}})) || ($a cmp $b) } keys %{$heap->{macs}})."]"
